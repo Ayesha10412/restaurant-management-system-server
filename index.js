@@ -4,7 +4,7 @@ const cors = require("cors");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors("http://localhost:5174"));
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
@@ -29,6 +29,13 @@ async function run() {
     // users related api
     app.post("/users", async (req, res) => {
       const user = req.body;
+      // insert email if user does not exist
+      // you can do this many ways(1. email unique, 2. upsert, 3. simple checking)
+      const query = { email: user?.email };
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        return res.send({ message: "User Already exist!" });
+      }
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
