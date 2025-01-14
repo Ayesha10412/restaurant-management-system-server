@@ -36,7 +36,7 @@ async function run() {
       const user = req.body;
       console.log(user);
       const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
-        expiresIn: "1hr",
+        expiresIn: "365hr",
       });
       res.send({ token });
     });
@@ -229,6 +229,120 @@ async function run() {
       const deleteResult = await cartCollection.deleteMany(query);
       res.send({ paymentResult, deleteResult });
     });
+
+    // stat analytics
+    app.get("/admin-stat", verifyToken, verifyAdmin, async (req, res) => {
+      const users = await userCollection.estimatedDocumentCount();
+      const menuItems = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      // const payments = await paymentCollection.find().toArray();
+      // const revenue = payments.reduce(
+      //   (total, payment) => total + payment.price,
+      //   0
+      // );
+      const result = await paymentCollection
+        .aggregate([
+          {
+            $group: {
+              _id: null,
+              totalRevenue: { $sum: { $toDouble: "$price" } },
+            },
+          },
+        ])
+        .toArray();
+      const revenue = result.length > 0 ? result[0].totalRevenue : 0;
+
+      res.send({ users, menuItems, orders, revenue });
+    });
+    app.get("/order-stat", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await paymentCollection
+        .aggregate([
+          {
+            $unwind: "$menuItemIds",
+          },
+          {
+            $lookup: {
+              from: "menu",
+              localField: "menuItemIds",
+              foreignField: "_id",
+              as: "menuItemDetails",
+            },
+          },
+          {
+            $unwind: "$menuItemDetails",
+          },
+          {
+            $group: {
+              _id: "$menuItemDetails.category",
+              quantity: {
+                $sum: 1,
+              },
+              revenue: {
+                $sum: "$menuItemDetails.price",
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              category: "$_id",
+              quantity: "$quantity",
+              revenue: "$revenue",
+              // quantity: 1,
+              // revenue: 1,
+            },
+          },
+        ])
+        .toArray();
+      res.send(result);
+    });
+
+    // app.get("/order-stat", verifyToken, verifyAdmin, async (req, res) => {
+    //   try {
+    //     const result = await paymentCollection
+    //       .aggregate([
+    //         {
+    //           $unwind: "$menuItems",
+    //         },
+    //         {
+    //           $addFields: {
+    //             menuItems: { $toObjectId: "$menuItems" },
+    //           },
+    //         },
+    //         {
+    //           $lookup: {
+    //             from: "menu",
+    //             localField: "menuItems",
+    //             foreignField: "_id",
+    //             as: "menuItems",
+    //           },
+    //         },
+    //         {
+    //           $unwind: "$menuItems",
+    //         },
+    //         {
+    //           $group: {
+    //             _id: "$menuItems.category",
+    //             quantity: { $sum: 1 },
+    //             revenue: { $sum: { $ifNull: ["$menuItems.price", 0] } },
+    //           },
+    //         },
+    //         {
+    //           $project: {
+    //             _id: 0,
+    //             category: "$_id",
+    //             quantity: "$quantity",
+    //             revenue: "$revenue",
+    //           },
+    //         },
+    //       ])
+    //       .toArray();
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error("Error fetching order stats:", error);
+    //     res.status(500).send({ message: "Internal Server Error" });
+    //   }
+    // });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
